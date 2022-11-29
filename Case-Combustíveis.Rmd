@@ -1,0 +1,158 @@
+---
+title: "Processo Seletivo - 4intelligence"
+author: "Artur Carvalho de Medeiros"
+date: ""
+output: pdf_document
+---
+
+Para realização das análises foram utilizados os seguintes pacotes: 
+
+```{r, include=FALSE}
+pacman::p_load(tidyverse, readxl, reshape2, lubridate)
+```
+
+Para a padronização dos gráficos foi cirada a função abaixo:
+
+```{r}
+cores_grafico <- c(
+   "#E8AE68", "#88527F", "#202C59", "#F02D3A", 
+   "#2E5339", "#3C91E6", "#E59500", "#654C4F"
+)
+
+theme_grafico <- function(...) {
+    theme <- ggplot2::theme_bw() +
+        ggplot2::theme(
+            axis.title.y = ggplot2::element_text(colour = "black", size = 12),
+            axis.title.x = ggplot2::element_text(colour = "black", size = 12),
+            axis.text = ggplot2::element_text(colour = "black", size = 9.5),
+            panel.border = ggplot2::element_blank(),
+            axis.line = ggplot2::element_line(colour = "black"),
+            legend.position = "top",
+            ...
+        )
+
+    return(
+        list(
+            theme,
+            scale_fill_manual(values = cores_grafico),
+            scale_colour_manual(values = cores_grafico)
+        )
+    )
+}
+
+```
+
+
+Leitura e ajuste do banco de dados:
+
+```{r}
+diesel <- read_excel("C:/Faculdade/4inteligence/dados_desafiodatascientistintern_vendas_distribuidoras_anp.xlsx", sheet = "diesel")%>% 
+  melt(id.vars = c("regiao","meses"), 
+               variable.name = "ano",
+               value.name = "diesel")
+
+gasolina <- read_excel("C:/Faculdade/4inteligence/dados_desafiodatascientistintern_vendas_distribuidoras_anp.xlsx", sheet = "gasolina") %>% 
+  melt(id.vars = c("regiao","meses"), 
+               variable.name = "ano",
+               value.name = "gasolina")
+
+etanol <- read_excel("C:/Faculdade/4inteligence/dados_desafiodatascientistintern_vendas_distribuidoras_anp.xlsx", sheet = "etanol") %>% 
+  melt(id.vars = c("regiao","meses"), 
+               variable.name = "ano",
+               value.name = "etanol")
+
+dados <- left_join(diesel, gasolina, by = c("regiao","meses","ano")) %>% 
+  left_join(etanol, by = c("regiao","meses","ano")) %>% 
+  mutate(mes_ano = as.Date(paste0(ano,"-",meses,"-01")),
+         combustivel = etanol+gasolina+diesel) # variável que representa o consumo total de combustível 
+summary(dados)
+```
+
+# Questão 1:
+
+### Qual é a sazonalidade da venda de combustíveis? 
+
+```{r}
+# Consumo de combustível no Brasil
+dados %>% filter(regiao == "br") %>% mutate(combustivel = combustivel/1000000) %>% 
+  ggplot() +
+  geom_line(aes(x=mes_ano, y=combustivel)) +
+  scale_x_date(breaks=seq(min(dados$mes_ano), max(dados$mes_ano), by="2 years"), 
+    date_labels="%Y", minor_breaks=seq(min(dados$mes_ano),
+    max(dados$mes_ano), by="2 years")) +
+  labs(x ="Anos", y = 'Consumo de Combustível em milhões', title = "Consumo de combustível no Brasil") +
+  theme_grafico()
+
+```
+É percepitível uma tendência crescente na venda de combustíveis ao passar dos anos. É importante observar a queda desse consumo nos meses iniciais de 2020 devido ao início da pandemia da COVID-19 que acarretou o isolamento social e consequentemente a baixa no consumo de conbustíveis.
+
+Observa-se também a presença de uma sazonalidade na qual há um padrão de picos e valres. Verifica-se que ,em geral, ao iniciar o ano há uma baixa no consumo de combustível, mas a medida de que o ano passa esse consumo tende a aumentar.
+
+
+### Essa sazonalidade é igual em todos os estados? 
+
+```{r}
+regioes <- dados %>% filter(regiao != "br") %>% mutate(combustivel = combustivel/1000)
+regioes %>%
+  ggplot() +
+  geom_line(aes(x=mes_ano, y=combustivel, group = regiao, colour = regiao)) +
+  scale_x_date(breaks=seq(min(dados$mes_ano), max(dados$mes_ano), by="2 years"), 
+    date_labels="%Y", minor_breaks=seq(min(dados$mes_ano),
+    max(dados$mes_ano), by="2 years")) +
+  labs(x = "Anos", y = 'Consumo de combustível em milhares') +
+  theme_grafico()
+```
+
+Pela análise gráfica, persebe-se que São Paulo e Minas Gerais apresentam um consumo consideravelmente superior aos demais estatos.
+
+Para verificar melhor o comportamento da sazonalidade foram feitos gráficos isolados de cada estado.
+
+```{r, echo=TRUE}
+map(unique(regioes$regiao),function(ee){
+  regioes %>% 
+  filter(regiao == ee) %>% 
+  ggplot() +
+  geom_line(aes(x=mes_ano, y=combustivel)) +
+  scale_x_date(breaks=seq(min(dados$mes_ano), max(dados$mes_ano), by="2 years"), 
+    date_labels="%Y", minor_breaks=seq(min(dados$mes_ano),
+    max(dados$mes_ano), by="2 years")) +
+  labs(x = "Anos", y = 'Consumo de combustível em milhares', title = paste0("Consumo de combustível em ", ee)) +
+  theme_grafico()
+})
+```
+
+
+Ao analisar a sazonalidade por estado, verifica-se que de forma geral as observações feitas para o Brasil se aplicam também em cada estado. Apesar disso, ainda pode ser verificado diferente comportamento do consumo de combustíveis dependendo do estado.
+
+### Como o consumo de cada tipo de combustível está distribuído entre os estados brasileiros?
+
+```{r}
+regioes2 <- regioes %>%  melt(id.vars = c("regiao","meses","mes_ano","ano"), 
+               variable.name = "tipo",
+               value.name = "valor")
+
+map(unique(regioes$regiao),function(ee){
+  regioes %>% 
+  filter(regiao == ee) %>% 
+  ggplot() +
+  geom_line(aes(x=mes_ano, y=combustivel)) +
+  scale_x_date(breaks=seq(min(dados$mes_ano), max(dados$mes_ano), by="2 years"), 
+    date_labels="%Y", minor_breaks=seq(min(dados$mes_ano),
+    max(dados$mes_ano), by="2 years")) +
+  labs(x = "Anos", y = 'Consumo de combustível em milhares', title = paste0("Consumo de combustível em ", ee)) +
+  theme_grafico()
+})
+```
+
+
+
+### Qual é o tamanho total do mercado e como o mercado evoluiu durante os últimos 5 anos?
+
+```{r}
+
+```
+
+# Questão 2:
+
+Ao observar os estados e o sua diferença no consumo de conbustíveis percebe-se que aqueles estados que são polos economicos apresentam consumos de combustível significamente superiores, como é o caso de São Paulo. Além disso, espera-se que 
+
